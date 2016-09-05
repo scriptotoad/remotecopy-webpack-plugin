@@ -1,11 +1,11 @@
 {
-  "name": "RemoteCopyPlugin",
-  "version": "0.0.875d4e7",
+  "name": "remotecopy-webpack-plugin",
+  "version": "0.0.2",
   "description": "Copy assets files and directories to remote system",
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kevlened/copy-webpack-plugin.git"
+    "url": "https://github.com/scriptotoad/remotecopy-webpack-plugin.git"
   },
   "keywords": [
     "js",
