@@ -2,17 +2,17 @@ const exec = require('child_process').exec;
 const path = require("path");
 const isWin = /^win/.test(process.platform);
 var Promise = require('bluebird');
+
 function execp(s){
     return new Promise(function (resolve, reject) {
-        console.log('\n');
-        console.log(s);
-        exec( s, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-            } else if (stderr) {
-                reject(stderr);
-            }
-            resolve(stdout);
+        var stdoutValue;
+        var child = exec(s, {timeout: 5000}, function(error, stdout, stderr) {
+            stdoutValue = stdout;
+            error && reject(error);
+            stderr && reject(stderr);
+        });
+        child.on('close', function(code) {
+            resolve(stdoutValue);
         });
     });
 }
@@ -38,52 +38,140 @@ function RemoteCopyPlugin(options) {
             const port = options.port ? '-P ' + options.port + ' ': '';
             const outputPath = compiler.outputPath;
             
-//            var tree = Object.keys(compilation.assets).reduce( (prev, file, i, a) => {
-//                var relativeLocalPathName = path.relative(
-//                    workingDirectory,
-//                    path.join(
-//                        outputPath,
-//                        file.replace(/\?.*$/,'')
-//                    )
-//                );
-//                var pathChunks = relativeLocalPathName.split(path.sep);
-//                var 
-//                prev.find( (rec, i, a) => rec.find() )
-//            }, []);
-//            
-//            
-//            Promise.all(
-//                Object.keys(compilation.assets).map( file => {
-//                    var relativeLocalPathName = path.relative(
-//                        workingDirectory,
-//                        path.join(
-//                            outputPath,
-//                            file.replace(/\?.*$/,'')
-//                        )
-//                    );
-//                    console.log('\n');
-//                    console.log(relativeLocalPathName);
-//                    var pathChunks = relativeLocalPathName.split(path.sep);
-//                    
-//                    
-//                    
-//                    return execp(puttyInstallLocation + 'plink '
-//                        + port
-//                        + hostName
-//                        + ' mkdir -p '
-//                        + remotePathPref.concat(pathChunks.slice(0,-1)).join(path.posix.sep)
-//                    ).then(
-//                        execp(puttyInstallLocation + 'pscp '
-//                            + port
-//                            + relativeLocalPathName + ' '
-//                            + hostName + ':'
-//                            + remotePathPref.concat(pathChunks).join(path.posix.sep)
-//                        )
-//                    )
-//                })
+            //массив путей, начиная с наиболее коротких, затем те которые из продолжают (содержат их в начале)
+            //затем новый кратчайший путь, не начинающийся с выше записанными
+            //в записи "путь" лежат имена файлов этого пути
+            var records = Object.keys(compilation.assets).reduce( (result, file, i, a) => {
+                var relativeLocalPathName = path.relative(
+                    workingDirectory,
+                    path.join(
+                        outputPath,
+                        file.replace(/\?.*$/,'')
+                    )
+                );
+                var pathNameChunks = relativeLocalPathName.split(path.sep);
+                var pathChunks = pathNameChunks.slice(0, -1);
+                var nearest = [0];
+                var record = result.find(
+                    (rec, idx) => {
+                        var comparedCount = rec[0].slice(0, pathChunks.length)
+                        .concat(null) //грязный хук чоб проще вырезать нужную часть
+                        .findIndex(
+                            (savedPathChunk, i) => savedPathChunk !== pathNameChunks[i]
+                        );
+                        if( nearest[0] < comparedCount ){
+                            nearest = [comparedCount, idx, idx];
+                        } else if ( nearest[0] == comparedCount ){
+                            nearest[2] = idx;
+                        }
+                        return comparedCount === pathChunks.length
+                    }
+                );
+                
+                if( !record || result[nearest[1]][0].length > pathChunks.length ){
+                    if( nearest[0] > 0 ){
+                        record = [pathChunks, []];
+                        if( result[nearest[1]][0].length > pathChunks.length ){
+                            result.splice( nearest[1], 0, record );
+                        }
+                        if( result[nearest[2]][0].length < pathChunks.length ){
+                            result.splice( nearest[2] + 1, 0, record );
+                        }
+                    } else {
+                        record = [pathChunks, []];
+                        result.push(record);
+                    }
+                }
+                record[1].push( pathNameChunks.slice(-1)[0] );
+                return result
+            }, []);
+//            console.log(records);
+            
+            // длина командной строки не более 2047 символов https://support.microsoft.com/ru-ru/kb/830473
+            // netstat -o <- список текущих соединений, пади можно узнать сколько можно еще натворить
+            // TcpNumConnections ? https://support.microsoft.com/ru-ru/kb/314053#mt2
+            
+            const MAX_COMMAND_LENGTH = 2047;
+            var lastFirstPathChunk;
+            const MAX_CONNECT_COUNT = 5;
+            var currentConnections = 0;
+            records.push(null); //грязный хук чоб проще вырезать нужную часть
+            var indexRight = -1;//потому и -1, а не 0
+            function sendMaxParallelCommand(){
+                var freeConnectCount = MAX_CONNECT_COUNT - currentConnections;
+                var storedIndexRight = indexRight;
+                indexRight =- freeConnectCount;
+                return records.slice(indexRight, storedIndexRight).reduceRight( (res, record) => {
+                    currentConnections++;
+                    res.concat(
+                        (   record[0][0] !== lastFirstPathChunk
+                            ? (
+                                lastFirstPathChunk = record[0][0],
+                                execp(puttyInstallLocation + 'plink '
+                                    + port
+                                    + hostName
+                                    + ' mkdir -p '
+                                    + remotePathPref.concat(record[0]).join(path.posix.sep)
+                                )
+                            )
+                            :  Promise.resolve()
+                        ).then(
+                            () => execp(puttyInstallLocation + 'pscp '
+                                + port
+                                + record[1].map(fileName => (
+                                    record[0].concat(fileName).join(path.sep) + ' ')
+                                ).join('')
+                                + hostName + ':'
+                                + remotePathPref.concat(record[0]).join(path.posix.sep)
+                            )
+                        ).then(
+                            (v) => {
+                                console.log(v);
+                                currentConnections--;
+                                // если все отправлено
+                                if( -indexRight > records.length ){
+                                    // когда все отправилось
+                                    if(currentConnections === 0){
+                                        callback();
+                                    } 
+                                } else {
+                                    sendMaxParallelCommand();
+                                }
+                            }
+                        ).then(
+                            () => {},
+                            er => {
+                                console.error(`error: ${er}`);
+                                callback(null, er);
+                            }
+                        )
+                    );
+                    return res
+                }, []);
+            }
+            sendMaxParallelCommand();
+
+//            var relativeLocalPath = path.relative(
+//                workingDirectory,
+//                path.join(
+//                    outputPath,
+//                    Object.keys(compilation.assets).find(v => true).replace(/\?.*$/,'')
+//                )
+//            ).replace(/\\.*$/,'');
+//            execp(puttyInstallLocation + 'plink '
+//                + port
+//                + remoteOutputAddress
+//                + ' mkdir -p '
+//                + relativeLocalPath.split(path.sep).join(path.posix.sep)
 //            ).then(
-//                function() {
-//                    console.log(arguments);
+//                execp(puttyInstallLocation + 'pscp -r '
+//                    + port
+//                    + relativeLocalPath + ' '
+//                    + remoteOutputAddress
+//                )
+//            ).then(
+//                res => {
+//                    console.log(res);
 //                    callback();
 //                },
 //                er => {
@@ -91,36 +179,7 @@ function RemoteCopyPlugin(options) {
 //                    callback(null, er);
 //                }
 //            );
-
-            var relativeLocalPath = path.relative(
-                workingDirectory,
-                path.join(
-                    outputPath,
-                    Object.keys(compilation.assets).find(v => true).replace(/\?.*$/,'')
-                )
-            ).replace(/\\.*$/,'');
-            execp(puttyInstallLocation + 'plink '
-                + port
-                + remoteOutputAddress
-                + ' mkdir -p '
-                + relativeLocalPath.split(path.sep).join(path.posix.sep)
-            ).then(
-                execp(puttyInstallLocation + 'pscp -r '
-                    + port
-                    + relativeLocalPath + ' '
-                    + remoteOutputAddress
-                )
-            ).then(
-                res => {
-                    console.log(res);
-                    callback();
-                },
-                er => {
-                    console.error(`error: ${er}`);
-                    callback(null, er);
-                }
-            );
-
+            
         });
     }
     return {
