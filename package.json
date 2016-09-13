@@ -1,6 +1,6 @@
 {
   "name": "remotecopy-webpack-plugin",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "Copy assets files and directories to remote system",
   "main": "index.js",
   "repository": {

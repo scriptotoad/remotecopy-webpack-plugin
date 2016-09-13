@@ -5,6 +5,7 @@ var Promise = require('bluebird');
 
 function execp(s){
     return new Promise(function (resolve, reject) {
+//        console.log(`start->${s}`);
         var stdoutValue;
         var child = exec(s, {timeout: 5000}, function(error, stdout, stderr) {
             stdoutValue = stdout;
@@ -12,6 +13,7 @@ function execp(s){
             stderr && reject(stderr);
         });
         child.on('close', function(code) {
+//            console.log(`finish->${s}`);
             resolve(stdoutValue);
         });
     });
@@ -85,7 +87,7 @@ function RemoteCopyPlugin(options) {
                 record[1].push( pathNameChunks.slice(-1)[0] );
                 return result
             }, []);
-//            console.log(records);
+            records.reverse();
             
             // длина командной строки не более 2047 символов https://support.microsoft.com/ru-ru/kb/830473
             // netstat -o <- список текущих соединений, пади можно узнать сколько можно еще натворить
@@ -94,92 +96,78 @@ function RemoteCopyPlugin(options) {
             const MAX_COMMAND_LENGTH = 2047;
             var lastFirstPathChunk;
             const MAX_CONNECT_COUNT = 5;
+            var pDirs = new Map();
             var currentConnections = 0;
-            records.push(null); //грязный хук чоб проще вырезать нужную часть
-            var indexRight = -1;//потому и -1, а не 0
+            var recordIndex = 0;
             function sendMaxParallelCommand(){
-                var freeConnectCount = MAX_CONNECT_COUNT - currentConnections;
-                var storedIndexRight = indexRight;
-                indexRight =- freeConnectCount;
-                return records.slice(indexRight, storedIndexRight).reduceRight( (res, record) => {
-                    currentConnections++;
-                    res.concat(
-                        (   record[0][0] !== lastFirstPathChunk
-                            ? (
-                                lastFirstPathChunk = record[0][0],
-                                execp(puttyInstallLocation + 'plink '
-                                    + port
-                                    + hostName
-                                    + ' mkdir -p '
-                                    + remotePathPref.concat(record[0]).join(path.posix.sep)
-                                )
-                            )
-                            :  Promise.resolve()
-                        ).then(
-                            () => execp(puttyInstallLocation + 'pscp '
+                var record;
+                for (; MAX_CONNECT_COUNT > currentConnections && recordIndex < records.length;){
+                    record = records[recordIndex++];
+                    if( !pDirs.has(record[0][0]) ){
+                        currentConnections++;
+                        pDirs.set(
+                            record[0][0],
+                            execp(
+                                puttyInstallLocation + 'plink '
                                 + port
-                                + record[1].map(fileName => (
-                                    record[0].concat(fileName).join(path.sep) + ' ')
-                                ).join('')
-                                + hostName + ':'
+                                + hostName
+                                + ' mkdir -p '
                                 + remotePathPref.concat(record[0]).join(path.posix.sep)
+                            ).then(
+                                ()=>{currentConnections--}
                             )
-                        ).then(
-                            (v) => {
-                                console.log(v);
-                                currentConnections--;
-                                // если все отправлено
-                                if( -indexRight > records.length ){
-                                    // когда все отправилось
-                                    if(currentConnections === 0){
-                                        callback();
-                                    } 
+                        );
+                    }
+                    pDirs.get(record[0][0]).then(
+                        (record => () => {
+                            var res = [
+                               puttyInstallLocation, 'pscp ', port,
+                               '',
+                               hostName, ':',
+                               remotePathPref.concat(record[0]).join(path.posix.sep)
+                            ],
+                            s,
+                            i = record[1].findIndex( fileName => {
+                                s = record[0].concat(fileName).join(path.sep) + ' ';
+                                if( MAX_COMMAND_LENGTH - res.join('').length >= s.length ){
+                                    res[3] += s;
                                 } else {
-                                    sendMaxParallelCommand();
+                                    return true
                                 }
+                            } );
+                            if(i !== 0){
+                                if( i !== -1 ){
+                                    records.push([record[0], record[1].slice(i)]);
+                                }
+                                currentConnections++;
+                                return execp( res.join('') );
                             }
-                        ).then(
-                            () => {},
-                            er => {
-                                console.error(`error: ${er}`);
-                                callback(null, er);
+                            throw `RemoteCopyPlugin: break the limit of max length: "${s}"`
+                        })(record)
+                    ).then(
+                        (v) => {
+                            console.log(v);
+                            currentConnections--;
+                            // если все отправлено
+                            if( recordIndex >= records.length ){
+                                // когда все отправилось
+                                if(currentConnections === 0){
+                                    callback();
+                                } 
+                            } else {
+                                sendMaxParallelCommand();
                             }
-                        )
+                        }
+                    ).then(
+                        () => {},
+                        er => {
+                            console.error(`error: ${er}`);
+                            callback(null, er);
+                        }
                     );
-                    return res
-                }, []);
+                }
             }
-            sendMaxParallelCommand();
-
-//            var relativeLocalPath = path.relative(
-//                workingDirectory,
-//                path.join(
-//                    outputPath,
-//                    Object.keys(compilation.assets).find(v => true).replace(/\?.*$/,'')
-//                )
-//            ).replace(/\\.*$/,'');
-//            execp(puttyInstallLocation + 'plink '
-//                + port
-//                + remoteOutputAddress
-//                + ' mkdir -p '
-//                + relativeLocalPath.split(path.sep).join(path.posix.sep)
-//            ).then(
-//                execp(puttyInstallLocation + 'pscp -r '
-//                    + port
-//                    + relativeLocalPath + ' '
-//                    + remoteOutputAddress
-//                )
-//            ).then(
-//                res => {
-//                    console.log(res);
-//                    callback();
-//                },
-//                er => {
-//                    console.error(`error: ${er}`);
-//                    callback(null, er);
-//                }
-//            );
-            
+            sendMaxParallelCommand();            
         });
     }
     return {
