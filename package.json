@@ -1,11 +1,14 @@
 {
   "name": "remotecopy-webpack-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Copy assets files and directories to remote system",
   "main": "index.js",
   "repository": {
     "type": "git",
     "url": "https://github.com/scriptotoad/remotecopy-webpack-plugin.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scriptotoad/remotecopy-webpack-plugin/issues"
   },
   "keywords": [
     "js",
@@ -21,5 +24,9 @@
   ],
   "author": "scriptotoad",
   "license": "MIT",
-  "homepage": "https://github.com/scriptotoad/remotecopy-webpack-plugin"
+  "homepage": "https://github.com/scriptotoad/remotecopy-webpack-plugin",
+  "dependencies": {
+    "bluebird": "^3.4.6",
+    "regedit": "^2.2.6"
+  }
 }
