@@ -10,7 +10,7 @@ npm install --save-dev git://github.com/scriptotoad/remotecopy-webpack-plugin.gi
 
 ### Require
 
-[PuTTY](https://webpack.github.io/docs/?utm_source=github&utm_medium=readme&utm_campaign=top)
+[PuTTY](http://www.chiark.greenend.org.uk/~sgtatham/putty/download.html)
 better use A Windows MSI installer.
 pageant.exe
 pscp.exe
