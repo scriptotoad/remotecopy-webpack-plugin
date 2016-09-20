@@ -10,9 +10,11 @@ npm install --save-dev git://github.com/scriptotoad/remotecopy-webpack-plugin.gi
 
 ### Require
 
-PuTTY
+[PuTTY](https://webpack.github.io/docs/?utm_source=github&utm_medium=readme&utm_campaign=top)
+better use A Windows MSI installer.
 pageant.exe
-"%PROGRAMFILES(x86)%\PuTTY\pscp.exe
+pscp.exe
+plink.exe
 
 ### Examples
 
@@ -70,3 +72,9 @@ module.exports = [{
     return configRec
 });
 ```
+
+### Options
+
+remoteOutputAddress - required, 'remote_user_name@host.name:remote_path'
+port - optional
+puttyLocation - optional, search order: options.puttyLocation afterwards in Windows registry. It set on A Windows MSI installer. Afterwards in "%PROGRAMFILES(x86)%\PuTTY\

@@ -1,6 +1,6 @@
 {
   "name": "remotecopy-webpack-plugin",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Copy assets files and directories to remote system",
   "main": "index.js",
   "repository": {
@@ -18,9 +18,12 @@
     "move",
     "copy",
     "remote",
+    "deploy",
     "windows",
     "PuTTY",
-    "pscp"
+    "pagent",
+    "pscp",
+    "plink"
   ],
   "author": "scriptotoad",
   "license": "MIT",
